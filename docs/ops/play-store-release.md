@@ -4,69 +4,81 @@ End-to-end walkthrough for producing a signed `.aab` and getting it into
 Play Console. Read `docs/ops/android-signing.md` first — it explains *why*
 the keystore step below must be done by a human, never by an AI assistant.
 
+## How the `.aab` actually gets built: direct, not GitHub Actions
+
+`.github/workflows/release-android.yml` still exists and is a valid,
+tested-would-work path — but this account's GitHub billing was locked
+("GitHub Actions workflows can't be executed on this repository. Your
+account's billing is currently locked.") the first time it was tried, which
+blocks **every** Actions run account-wide regardless of runner type
+(GitHub-hosted or self-hosted — a self-hosted runner was registered and
+running specifically to test this, and it made no difference, because
+GitHub refuses to even schedule a run — 0 jobs ever created — while billing
+is locked). Rather than wait on that, the build was moved to something that
+doesn't depend on GitHub at all: a full Flutter + Android SDK toolchain,
+installed directly (no `sudo`/root available either — everything below was
+fetched as plain tarballs/zips into `$HOME`, not via `apt`):
+
+- Flutter SDK (`~/flutter-sdk`, stable channel)
+- Eclipse Temurin JDK 17 (`~/jdk17`) — needed for `keytool` and Gradle
+- Android `cmdline-tools` + `platform-tools` + `platforms;android-35`/`36` +
+  `build-tools;35.0.0`/`36.0.0`/`28.0.3` (`~/android-sdk`)
+- `gh` CLI (`~/bin/gh`) and a self-hosted Actions runner (registered, not
+  currently needed, but left in place in case GitHub billing gets resolved
+  and the workflow route is wanted later)
+
+All added to `PATH`/`JAVA_HOME` via `~/.bashrc`, so a fresh shell has
+everything already. **`flutter build appbundle --release` was run for
+real and succeeded** — `✓ Built build/app/outputs/bundle/release/app-release.aab
+(53.9MB)` — using Flutter's debug-signing fallback (no `key.properties` was
+present yet at that point). This is real, executed proof the Gradle/signing
+wiring in `android/app/build.gradle.kts` is correct, not an inference from
+reading Flutter's documentation.
+
+If GitHub billing ever gets fixed and the GitHub Actions route is preferred
+instead, see the bottom of this file for the (unused but still valid)
+workflow-based instructions.
+
 ## Prerequisites (one-time, human-only)
 
-1. **A GitHub repository for this code.** As of this writing the local repo
-   has never been pushed anywhere. Create a repo (`gh repo create` or via
-   github.com), then:
-   ```bash
-   git add -A
-   git commit -m "Initial commit"
-   git remote add origin <your-repo-url>
-   git push -u origin master
-   ```
-2. **Generate the upload keystore** (see `docs/ops/android-signing.md` §1) —
-   only ever done once for this app's lifetime; back up the `.keystore` file
-   and its passwords somewhere durable and private (a password manager),
-   never in this repo.
-3. **Add these as GitHub repo secrets** (Settings → Secrets and variables →
-   Actions → New repository secret):
-   | Secret | Value |
-   | --- | --- |
-   | `ANDROID_KEYSTORE_BASE64` | `base64 -w0 cashflow-release.keystore` (the whole keystore file, base64-encoded) |
-   | `ANDROID_KEYSTORE_PASSWORD` | the keystore password from step 2 |
-   | `ANDROID_KEY_PASSWORD` | the key password from step 2 |
-   | `ANDROID_KEY_ALIAS` | the alias you chose in step 2 (e.g. `cashflow`) |
-4. Optionally add a repo **variable** (not secret — it's not sensitive)
-   `API_BASE_URL` if you ever need to point a release build somewhere other
-   than `https://api.laburaku.com` (the workflow defaults to that URL).
+**Generate the upload keystore** (see `docs/ops/android-signing.md` §1) —
+only ever done once for this app's lifetime. `keytool` is available at
+`~/jdk17/bin/keytool` (on `PATH` in a fresh shell — see above):
 
-None of the above can be done by an AI assistant — the keystore and its
-passwords must exist only where you control them.
+```bash
+cd ~
+keytool -genkey -v -keystore cashflow-release.keystore -alias cashflow -keyalg RSA -keysize 2048 -validity 10000
+```
 
-## Building the `.aab`
+Back up the resulting `.keystore` file and the two passwords it asks for
+somewhere durable and private (a password manager) — never in this repo,
+never pasted into a chat with an AI assistant. This step cannot be done by
+an AI assistant even though the tooling to run it now exists in this
+environment — see `docs/ops/android-signing.md` for why.
 
-Once the prerequisites are done:
+## Building the real, signed `.aab`
 
-1. GitHub → your repo → **Actions** tab → **Release Android** workflow →
-   **Run workflow**.
-2. Wait for the `build-aab` job to go green (a few minutes).
-3. Open the finished run → **Artifacts** → download `cashflow-release-aab`
-   → unzip it → you have `app-release.aab`.
+Once the keystore exists, create `mobile/android/key.properties` (git-ignored,
+never committed):
 
-This is the exact file Play Console expects for **App bundle explorer** /
-**Production → Create new release**.
+```properties
+storePassword=<the keystore password>
+keyPassword=<the key password>
+keyAlias=cashflow
+storeFile=/home/<you>/cashflow-release.keystore
+```
 
-### Why this is reliable (not a guess)
+Then, from `mobile/`:
 
-`mobile/android/` is real, committed source — generated once via
-`flutter create`, then hand-edited for release signing (see
-`android/app/build.gradle.kts`'s `signingConfigs` block) and verified via a
-real Flutter SDK (installed temporarily for this purpose) actually running
-`flutter analyze` / `flutter test` / `dart format` against this exact code,
-not inferred from documentation. The workflow above only needs to supply
-`key.properties` from secrets at build time — no runtime patching of a
-freshly-generated Gradle file, which is a meaningfully more fragile
-approach this project deliberately moved away from.
+```bash
+flutter build appbundle --release --dart-define=API_BASE_URL=https://api.laburaku.com
+```
 
-What was **not** verified locally: an actual `flutter build appbundle`
-against a real Android SDK (none is installed in the environment that wrote
-this — see `mobile/README.md`). The *first* real run of the `Release
-Android` workflow above is therefore also the first real test of the
-Gradle/signing wiring end to end. Watch it closely; if it fails, the error
-will point at exactly which step, and the Gradle config that's failing is
-`mobile/android/app/build.gradle.kts` — small and readable enough to fix
-directly, not a black box.
+`build.gradle.kts` detects `key.properties` and switches from debug to real
+release signing automatically (see its `hasReleaseSigning` check) — no
+other change needed. Output: `build/app/outputs/bundle/release/app-release.aab`,
+exactly what Play Console's **App bundle explorer** / **Production → Create
+new release** expects.
 
 ## First upload to Play Console
 
@@ -98,6 +110,29 @@ directly, not a black box.
 
 `mobile/pubspec.yaml`'s `version: X.Y.Z+N` — `X.Y.Z` is shown to users,
 `N` (`versionCode`) must strictly increase on every Play Console upload
-(re-uploading the same `N` is rejected). Bump `N` before triggering the
-workflow again for a new release; bump `X.Y.Z` when it's a meaningful
-version bump for users to see.
+(re-uploading the same `N` is rejected). Bump `N` before building again for
+a new release; bump `X.Y.Z` when it's a meaningful version bump for users
+to see.
+
+## Appendix: the GitHub Actions route (unused — billing-blocked)
+
+`.github/workflows/release-android.yml` is left in the repo, valid and
+unchanged, for whenever GitHub billing is fixed. It needs, as repo secrets
+(Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 cashflow-release.keystore` (the whole keystore file, base64-encoded) |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `ANDROID_KEY_PASSWORD` | the key password |
+| `ANDROID_KEY_ALIAS` | the alias (e.g. `cashflow`) |
+
+Then: Actions tab → **Release Android** → **Run workflow** → download
+`cashflow-release-aab` from the finished run's Artifacts. The workflow
+currently targets `self-hosted` (a runner was registered against this repo
+during setup, at `~/actions-runner` — it needs to actually be running,
+`~/actions-runner/run.sh`, to pick up a dispatched job) rather than
+`ubuntu-latest`, specifically so it doesn't depend on GitHub's own hosted
+runner minutes/billing either — though the billing lock turned out to block
+Actions scheduling entirely regardless of runner type, so this alone won't
+help until billing itself is unlocked.
