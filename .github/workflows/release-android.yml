@@ -6,7 +6,7 @@ name: Release Android
 # one-time setup this depends on (an upload keystore only you hold, added as
 # repo secrets below).
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   build-aab:
