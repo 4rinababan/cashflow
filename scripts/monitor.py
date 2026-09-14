@@ -7,10 +7,11 @@ status actually CHANGES (up -> down, or down -> up) — never on every run —
 so a sustained outage produces exactly one "down" email and one "recovered"
 email, not one every cron tick.
 
-Deployed copy: ~/cashflow-deploy/monitor.py on the production VPS, run every
-5 minutes via cron (see docs/ops/production-deployment.md). This file is
-the source of truth — if you change it, redeploy it (scp) and re-run once
-manually to confirm before trusting the cron schedule again.
+Deployed as ~/cashflow/scripts/monitor.py on the production VPS (git-cloned,
+see docs/ops/production-deployment.md), run every 5 minutes via cron. This
+repo file is the source of truth — after changing it, `git pull` on the VPS
+(scripts/deploy-vps.sh does this) and re-run once manually to confirm
+before trusting the cron schedule again.
 
 Usage:
   monitor.py                  normal check (run from cron)
@@ -31,7 +32,7 @@ from pathlib import Path
 BASE_URL = "https://api.laburaku.com"
 CHECK_PATHS = ["/healthz", "/readyz"]
 ALERT_TO = "ari.decentindonesia@gmail.com"
-ENV_FILE = Path.home() / "cashflow-deploy" / ".env"
+ENV_FILE = Path.home() / "cashflow" / ".env"
 STATE_FILE = Path.home() / "cashflow-monitor" / "state"
 
 # This VPS's resolver has shown transient DNS hiccups during development
