@@ -213,10 +213,57 @@ succeeding on retry), and the retry exists specifically so that never turns
 into a false alert.
 
 Test the email path directly, independent of actual up/down state:
-`python3 ~/cashflow/scripts/monitor.py --test-email`. There is no dashboard —
-this is deliberately just "email me if it breaks," not a metrics UI (the
-app's own `GET /metrics` Prometheus endpoint exists for that if a proper
-Grafana/Prometheus setup is ever wanted later).
+`python3 ~/cashflow/scripts/monitor.py --test-email`. This uptime check is
+separate from the error-log alerting below — it only knows "responding" vs
+"not responding," not application-level errors.
+
+## Admin dashboard (analytics + error log)
+
+`GET https://api.laburaku.com/admin` — an internal-only page, gated by HTTP
+Basic Auth (`ADMIN_USER`/`ADMIN_PASSWORD` in `.env`; the dashboard route
+isn't even registered if either is unset — see `internal/admin`). Shows:
+
+- Cashflow: total users, total workspaces, users active in the last 7 days,
+  and zero-filled daily (30d) / weekly (12w) / monthly (12mo) new-signup
+  charts (server-rendered inline SVG — no JS dependency, no CDN).
+- gawean-management: a total-user-count snapshot **only if**
+  `GAWEAN_DATABASE_URL` is set to a read-only connection string for that
+  app's own Postgres — otherwise shown plainly as "not connected". This
+  project does not reach into that app's database on its own; wiring it up
+  needs an explicit, narrowly-scoped read-only role created on that side
+  and handed over for this purpose. There is no growth chart for it even
+  once connected — ASP.NET Identity's `AspNetUsers` table has no signup
+  timestamp column in that app's current schema, so there's no history to
+  chart, only ever a current total.
+- A recent-errors table, fed by `scripts/log-watch.py`.
+
+Same numbers as plain JSON at `GET /admin/api/stats`, for anything that'd
+rather poll than read HTML.
+
+### Error-log scraping + email digests
+
+`scripts/log-watch.py` runs every 5 minutes via cron:
+
+```
+*/5 * * * * /usr/bin/python3 /home/cashflow/cashflow/scripts/log-watch.py >> /home/cashflow/cashflow-monitor/log-watch.log 2>&1
+```
+
+For both `cashflow-api-1` and `deploy-web-1` (gawean's web container), it
+runs `docker logs --since <last-scan>`, keeps lines matching
+`error|exception|panic|fatal|unhandled` (case-insensitive — simple and a
+little over-inclusive on purpose: a false positive costs one noisy
+dashboard row, a false negative hides a real crash), appends new matches to
+`~/cashflow-monitor/error-log.jsonl`, and emails
+**ari.decentindonesia@gmail.com** a digest of everything new found in that
+run (batched, not one email per line). The `api` container has no Docker
+socket access — reading `docker logs` happens on the host via cron, and the
+JSONL file is exposed to the container only as a narrow, read-only bind
+mount (`docker-compose.prod.yml`) so `internal/admin` can display it.
+Verified: the pattern was confirmed to actually match real content in
+`deploy-web-1`'s history (23 hits over 7 days, a real Blazor JSInterop
+exception among them) before trusting it in production.
+
+Test the email path directly: `python3 ~/cashflow/scripts/log-watch.py --test-email`.
 
 ## Everyday operations cheat sheet
 
@@ -229,12 +276,18 @@ Grafana/Prometheus setup is ever wanted later).
 | Back up the database right now | `~/cashflow/scripts/backup-docker.sh cashflow-postgres-1 cashflow cashflow ~/cashflow-backups` |
 | Test the monitoring email path | `python3 ~/cashflow/scripts/monitor.py --test-email` |
 | Read backend logs | `docker compose -f ~/cashflow/docker-compose.yml -f ~/cashflow/docker-compose.prod.yml logs -f api` |
+| Open the admin dashboard | `https://api.laburaku.com/admin` (Basic Auth: `ADMIN_USER`/`ADMIN_PASSWORD` from `.env`) |
+| Test the error-digest email path | `python3 ~/cashflow/scripts/log-watch.py --test-email` |
 
 ## Not yet done
 
 - No `restore-docker.sh` companion script yet (see Backups above).
-- Monitoring is a single email alert, not a dashboard — fine for one person
-  watching one small deployment, revisit if that stops being true.
+- gawean-management's user count on the admin dashboard is not wired up
+  yet — needs a read-only Postgres role created on that app's database and
+  `GAWEAN_DATABASE_URL` set in `.env`.
+- No signup-location (city/country) data — deliberately skipped for now;
+  would need either IP geolocation at registration (a privacy policy
+  update) or asking users directly.
 - If GitHub billing ever gets fixed, decide whether to switch back to
   Actions-driven deploys or keep this git-pull model (it works, is simpler
   to reason about, and has no billing dependency at all — there's a real
