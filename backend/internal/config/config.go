@@ -63,24 +63,46 @@ type Config struct {
 	// "https://app.cashflow.example"); the mobile app / a web landing page
 	// owns the actual "/invites/{token}" route.
 	AppBaseURL string
+
+	// Admin* configure the internal /admin dashboard (Phase 9d — operator
+	// analytics/log panel, never exposed to end users). Empty
+	// AdminUser/AdminPassword disables the dashboard entirely (main.go
+	// checks this) rather than serving it wide open.
+	AdminUser     string
+	AdminPassword string
+	// GaweanDatabaseURL optionally points at a READ-ONLY role on the
+	// sibling gawean-management app's own Postgres, purely to show its
+	// total user count on the same dashboard. Left empty by default — that
+	// app's database is not this project's to reach into without the
+	// credentials being explicitly handed over for this purpose; the
+	// dashboard shows "not connected" until it's set.
+	GaweanDatabaseURL string
+	// AdminErrorLogPath is where scripts/log-watch.py writes newline-delimited
+	// JSON error/crash entries it scrapes from both apps' container logs
+	// (see docs/ops/production-deployment.md). Read-only from here.
+	AdminErrorLogPath string
 }
 
 // Load reads and validates configuration from environment variables.
 func Load() (Config, error) {
 	cfg := Config{
-		Port:            getEnv("PORT", "8080"),
-		Env:             getEnv("ENV", "development"),
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		JWTSigningKey:   os.Getenv("JWT_SIGNING_KEY"),
-		AIEndpoint:      getEnv("AI_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/openai"),
-		AIAPIKey:        os.Getenv("AI_API_KEY"),
-		AIModel:         getEnv("AI_MODEL", "gemini-flash-latest"),
-		SMTPHost:        os.Getenv("SMTP_HOST"),
-		SMTPUsername:    os.Getenv("SMTP_USER"),
-		SMTPPassword:    os.Getenv("SMTP_PASSWORD"),
-		SMTPFromAddress: os.Getenv("SMTP_FROM_ADDRESS"),
-		SMTPFromName:    getEnv("SMTP_FROM_NAME", "Cashflow"),
-		AppBaseURL:      getEnv("APP_BASE_URL", "https://app.cashflow.example"),
+		Port:              getEnv("PORT", "8080"),
+		Env:               getEnv("ENV", "development"),
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		JWTSigningKey:     os.Getenv("JWT_SIGNING_KEY"),
+		AIEndpoint:        getEnv("AI_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/openai"),
+		AIAPIKey:          os.Getenv("AI_API_KEY"),
+		AIModel:           getEnv("AI_MODEL", "gemini-flash-latest"),
+		SMTPHost:          os.Getenv("SMTP_HOST"),
+		SMTPUsername:      os.Getenv("SMTP_USER"),
+		SMTPPassword:      os.Getenv("SMTP_PASSWORD"),
+		SMTPFromAddress:   os.Getenv("SMTP_FROM_ADDRESS"),
+		SMTPFromName:      getEnv("SMTP_FROM_NAME", "Cashflow"),
+		AppBaseURL:        getEnv("APP_BASE_URL", "https://app.cashflow.example"),
+		AdminUser:         os.Getenv("ADMIN_USER"),
+		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
+		GaweanDatabaseURL: os.Getenv("GAWEAN_DATABASE_URL"),
+		AdminErrorLogPath: getEnv("ADMIN_ERROR_LOG_PATH", "/data/monitor/error-log.jsonl"),
 	}
 
 	limitRaw := getEnv("RECEIPT_SCAN_DAILY_LIMIT_PER_USER", "10")

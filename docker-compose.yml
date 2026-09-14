@@ -41,6 +41,10 @@ services:
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Cashflow}
       SMTP_IMPLICIT_TLS: ${SMTP_IMPLICIT_TLS:-}
       APP_BASE_URL: ${APP_BASE_URL:-https://app.cashflow.example}
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      GAWEAN_DATABASE_URL: ${GAWEAN_DATABASE_URL:-}
+      ADMIN_ERROR_LOG_PATH: ${ADMIN_ERROR_LOG_PATH:-/data/monitor/error-log.jsonl}
     ports:
       - "${PORT:-8080}:8080"
 

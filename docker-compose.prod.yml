@@ -16,6 +16,11 @@
 #    Cashflow process has a hard ceiling and can never starve the other
 #    app sharing this VPS, and `docker compose ps` reports Cashflow's own
 #    health accurately instead of just "Up".
+# 3. A read-only bind mount of ~/cashflow-monitor into `api`, so the admin
+#    dashboard (internal/admin) can read the error-log.jsonl file
+#    scripts/log-watch.py writes on the host via cron — the api container
+#    has no Docker socket access (deliberately; that would be a much wider
+#    grant just to read one file), so this is the narrow alternative.
 services:
   postgres:
     ports: !reset []
@@ -27,6 +32,8 @@ services:
 
   api:
     ports: !reset []
+    volumes:
+      - ${HOME}/cashflow-monitor:/data/monitor:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
       interval: 10s

@@ -5,6 +5,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"cashflow-backend/internal/admin"
 	"cashflow-backend/internal/auth"
 	"cashflow-backend/internal/ledger"
 	"cashflow-backend/internal/receipts"
@@ -21,6 +22,12 @@ type Deps struct {
 	ReceiptService   *receipts.Service
 	ReportsService   *reports.Service
 	WorkspaceService *workspaces.Service
+	// AdminService is nil when the admin dashboard is not configured
+	// (ADMIN_USER/ADMIN_PASSWORD unset) — NewRouter skips registering
+	// /admin entirely in that case, rather than serving it unauthenticated.
+	AdminService  *admin.Service
+	AdminUser     string
+	AdminPassword string
 }
 
 // NewRouter builds the full request handler: routes wrapped in the standard
@@ -90,6 +97,16 @@ func NewRouter(deps Deps) http.Handler {
 	// rate limiting is per-user by design (docs/adr/0002-ai-receipt-scanning.md)
 	// and it never writes a transaction itself, so it needs no workspace at all.
 	mux.Handle("POST /receipts/scan", requireAuth(receipts.ScanHandler(deps.ReceiptService)))
+
+	// Internal operator dashboard (Phase 9d) — HTTP Basic Auth, never linked
+	// from anything public. Only registered when actually configured, so a
+	// deployment that hasn't set ADMIN_USER/ADMIN_PASSWORD doesn't
+	// accidentally serve it wide open under a guessable path.
+	if deps.AdminService != nil && deps.AdminUser != "" && deps.AdminPassword != "" {
+		requireAdmin := admin.RequireBasicAuth(deps.AdminUser, deps.AdminPassword)
+		mux.Handle("GET /admin", requireAdmin(admin.DashboardHandler(deps.AdminService)))
+		mux.Handle("GET /admin/api/stats", requireAdmin(admin.StatsAPIHandler(deps.AdminService)))
+	}
 
 	// A much looser general limit (10/sec, burst 20 per IP) across every
 	// route, on top of the stricter one above — a backstop against generic

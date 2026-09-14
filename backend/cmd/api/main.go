@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"cashflow-backend/internal/admin"
 	"cashflow-backend/internal/auth"
 	"cashflow-backend/internal/config"
 	"cashflow-backend/internal/ledger"
@@ -125,6 +126,18 @@ func run() error {
 
 	reportsService := reports.NewService(reports.NewPostgresStore(pool))
 
+	var adminService *admin.Service
+	if cfg.AdminUser != "" && cfg.AdminPassword != "" {
+		gaweanPool, err := admin.ConnectGawean(ctx, cfg.GaweanDatabaseURL)
+		if err != nil {
+			slog.Error("connect to gawean-management database failed — admin dashboard will show it as not connected", "error", err)
+			gaweanPool = nil
+		}
+		adminService = admin.NewService(pool, gaweanPool, cfg.AdminErrorLogPath)
+	} else {
+		slog.Warn("ADMIN_USER/ADMIN_PASSWORD not set — the /admin dashboard is disabled")
+	}
+
 	srv := server.New(cfg.Port, server.Deps{
 		Pinger:           pool,
 		AuthService:      authService,
@@ -133,6 +146,9 @@ func run() error {
 		ReceiptService:   receiptService,
 		ReportsService:   reportsService,
 		WorkspaceService: workspaceService,
+		AdminService:     adminService,
+		AdminUser:        cfg.AdminUser,
+		AdminPassword:    cfg.AdminPassword,
 	})
 
 	errCh := make(chan error, 1)
