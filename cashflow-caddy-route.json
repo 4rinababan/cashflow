@@ -1,0 +1,10 @@
+{
+  "match": [{"host": ["api.laburaku.com"]}],
+  "handle": [
+    {
+      "handler": "reverse_proxy",
+      "upstreams": [{"dial": "api:8080"}]
+    }
+  ],
+  "terminal": true
+}
