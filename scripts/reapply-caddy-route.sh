@@ -14,7 +14,7 @@
 set -euo pipefail
 
 CADDY_CONTAINER="deploy-caddy-1"
-CASHFLOW_NETWORK="cashflow-deploy_default"
+CASHFLOW_NETWORK="cashflow_default"
 ROUTE_HOST="api.laburaku.com"
 ROUTE_FILE="$(dirname "$0")/../cashflow-caddy-route.json"
 
