@@ -1,0 +1,40 @@
+# Production override for a shared VPS that also runs another, unrelated
+# app (see docs/ops/production-deployment.md). Two things this adds on top
+# of docker-compose.yml:
+#
+# 1. No ports published to the host (`ports: !reset []`) — postgres and api
+#    are reachable only from inside this stack's own Docker network; the
+#    shared Caddy reverse proxy on that VPS reaches `api` by container name
+#    after being attached to this network (see
+#    docs/ops/production-deployment.md). A plain `ports: []` does NOT
+#    achieve this — Compose merges list values from the base file by
+#    default, so the base file's port mapping survives unless `!reset`
+#    forces a real replacement. This bit the deployment once already
+#    (ports were briefly, accidentally exposed to the public internet) —
+#    do not "simplify" this back to a plain empty list.
+# 2. Resource limits + a real healthcheck on `api`, so a runaway/leaking
+#    Cashflow process has a hard ceiling and can never starve the other
+#    app sharing this VPS, and `docker compose ps` reports Cashflow's own
+#    health accurately instead of just "Up".
+services:
+  postgres:
+    ports: !reset []
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  api:
+    ports: !reset []
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
